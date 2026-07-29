@@ -1,0 +1,65 @@
+{
+  "name": "Moshi agent development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "stable",
+      "profile": "minimal"
+    }
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/moshi,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/moshi",
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+  "updateRemoteUserUID": true,
+  "init": true,
+  "appPort": [
+    "0.0.0.0:5173:5173",
+    "0.0.0.0:8998:8998"
+  ],
+  "mounts": [
+    "source=/mnt/data/huggingface_moshi,target=/mnt/data/huggingface_moshi,type=bind"
+  ],
+  "runArgs": [
+    "--gpus=all",
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges:true"
+  ],
+  "containerEnv": {
+    "HF_HOME": "/mnt/data/huggingface_moshi",
+    "PYTHONUNBUFFERED": "1",
+    "UV_LINK_MODE": "copy"
+  },
+  "postCreateCommand": "uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e 'moshi[dev]'",
+  "postStartCommand": "bash .devcontainer/start-services.sh",
+  "portsAttributes": {
+    "5173": {
+      "label": "Moshi web client"
+    },
+    "8998": {
+      "label": "Moshi model server"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvironment": true
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  },
+  "shutdownAction": "stopContainer"
+}
+

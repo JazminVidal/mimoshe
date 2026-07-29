@@ -89,11 +89,26 @@ def sample_token(
     temp: float = 1.0,
     top_k: int = 0,
     top_p: float = 0.0,
+    bias_token_id: int | None = None,
+    bias: float = 0.0,
 ) -> torch.Tensor:
-    """Given logits of shape [*, Card], returns a LongTensor of shape [*]."""
+    """Given logits of shape [*, Card], returns a LongTensor of shape [*].
+
+    ``bias`` is added after temperature scaling, so the selected token's
+    probability is multiplied by ``exp(bias)`` before top-k/top-p sampling.
+    """
     # Apply softmax for sampling if temp > 0. Else, do greedy sampling to avoid zero division error.
     if use_sampling and temp > 0.0:
-        probs = torch.softmax(logits / temp, dim=-1)
+        sampling_logits = logits / temp
+        if bias_token_id is not None and bias != 0.0:
+            if not 0 <= bias_token_id < sampling_logits.shape[-1]:
+                raise ValueError(
+                    f"bias token {bias_token_id} is outside vocabulary "
+                    f"of size {sampling_logits.shape[-1]}"
+                )
+            sampling_logits = sampling_logits.clone()
+            sampling_logits[..., bias_token_id] += bias
+        probs = torch.softmax(sampling_logits, dim=-1)
         if top_p > 0.0:
             next_token = sample_top_p(probs, p=top_p)
         elif top_k > 0:

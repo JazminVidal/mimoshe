@@ -1,0 +1,34 @@
+# Agent development container
+
+Open the repository in a Dev Container-compatible editor and choose **Reopen in
+Container**. The image provides Python 3.12, `uv`, Node.js 20, Rust, build tools,
+FFmpeg, and an editable Moshi Python installation.
+
+The container is intentionally a constrained agent workspace:
+
+- it runs commands as the non-root `vscode` user;
+- Linux capabilities are dropped and privilege escalation is disabled;
+- only this repository and the Moshi model cache are bind-mounted from the host;
+- the host Docker socket and host home directory are not mounted.
+
+Agents can change the repository because that is the purpose of the workspace
+mount. They can also access the network and NVIDIA GPUs for dependency downloads,
+model downloads, and testing. Treat the container as a strong reduction in host
+exposure, not as a security boundary for hostile code.
+
+The container requires a host with Docker, NVIDIA Container Toolkit, and an
+available NVIDIA GPU. Compose is deliberately not available through the host
+Docker socket. Start the model stack from a host terminal:
+
+```bash
+docker compose up --build
+```
+
+Only lint and type-check dependencies are installed automatically. Install a
+backend when it is needed so opening the workspace does not immediately download
+several gigabytes of PyTorch and CUDA packages:
+
+```bash
+uv pip install --python .venv/bin/python -e 'moshi[dev]'
+```
+

@@ -562,6 +562,7 @@ class LMGen(StreamingModule[_LMGenState]):
         temp_text: float = 0.7,
         top_k: int = 250,
         top_k_text: int = 25,
+        pad_mult: float = 0.0,
         cfg_coef: float = 1.,
         check: bool = False,
         condition_tensors: ConditionTensors | None = None,
@@ -582,6 +583,7 @@ class LMGen(StreamingModule[_LMGenState]):
         self.temp_text = temp_text
         self.top_k = top_k
         self.top_k_text = top_k_text
+        self.pad_mult = pad_mult
         self.cfg_coef = cfg_coef
         self.check = check
         self.max_delay = max(
@@ -738,6 +740,8 @@ class LMGen(StreamingModule[_LMGenState]):
             self.use_sampling,
             self.temp_text,
             self.top_k_text,
+            bias_token_id=lm_model.text_padding_token_id,
+            bias=self.pad_mult,
         )
         assert text_token.dim() == 3, text_token.shape
         assert text_token.shape[2] == 1

@@ -1,20 +1,25 @@
-version: "3.8"
-
 name: moshi
 
 services:
-
   moshi:
     build:
       context: ./moshi
-    expose:
-     - 8998/tcp
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8998"
+      - --hf-repo
+      - ${HF_REPO:-kyutai/moshiko-pytorch-bf16}
+    ports:
+      - "${MOSHI_BIND_ADDRESS:-0.0.0.0}:${MOSHI_PORT:-8998}:8998"
+    environment:
+      HF_HOME: /mnt/data/huggingface_moshi
+    init: true
     restart: unless-stopped
     volumes:
-      - hf-cache:/root/.cache/huggingface
-    environment:
-      #- HF_REPO=kyutai/moshika-pytorch-bf16
-      - HF_REPO=kyutai/moshiko-pytorch-bf16
+      - "${HF_CACHE_DIR:-/mnt/data/huggingface_moshi}:/mnt/data/huggingface_moshi"
+      - uv-cache:/root/.cache/uv
     deploy:
       resources:
         reservations:
@@ -23,18 +28,5 @@ services:
               capabilities: [gpu]
               count: all
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    pull_policy: always
-    restart: unless-stopped
-    expose:
-      - 43337/tcp
-    environment:
-      TUNNEL_URL: http://moshi:8998
-      TUNNEL_METRICS: 0.0.0.0:43337
-    command: tunnel --no-autoupdate
-    depends_on:
-      - moshi
-
 volumes:
-  hf-cache:
+  uv-cache:

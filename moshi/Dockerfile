@@ -6,5 +6,5 @@ WORKDIR /app
 
 COPY . /app
 
-#ENTRYPOINT ["bash", "-c", "sleep infinity"]
-ENTRYPOINT ["uv", "run", "-p", "3.10", "-m", "moshi.server", "--host", "0.0.0.0", "--hf-repo", "kyutai/moshika-pytorch-bf16"]
+ENTRYPOINT ["uv", "run", "-p", "3.10", "-m", "moshi.server"]
+CMD ["--host", "0.0.0.0", "--port", "8998", "--hf-repo", "kyutai/moshiko-pytorch-bf16"]

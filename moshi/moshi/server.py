@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from dataclasses import dataclass
 import inspect
+import json
 import random
 import os
 from pathlib import Path
@@ -55,6 +56,8 @@ class ServerState:
         self.device = device
         self.frame_size = int(self.mimi.sample_rate / self.mimi.frame_rate)
         self.lock = asyncio.Lock()
+        self.active_ws: web.WebSocketResponse | None = None
+        self.connection_generation = 0
 
         self.mimi.streaming_forever(1)
         self.lm_gen.streaming_forever(1)
@@ -71,6 +74,28 @@ class ServerState:
 
         torch.cuda.synchronize()
 
+    def update_sampling_params(self, data: dict) -> dict:
+        """Update generation sampling without resetting the active stream."""
+        params = {
+            "text_temperature": ("temp_text", float, 0.0, 1.2),
+            "text_topk": ("top_k_text", int, 1, 500),
+            "audio_temperature": ("temp", float, 0.0, 1.2),
+            "audio_topk": ("top_k", int, 1, 500),
+            "pad_mult": ("pad_mult", float, -10.0, 10.0),
+        }
+        applied = {}
+        for key, (attribute, cast, minimum, maximum) in params.items():
+            if key not in data:
+                continue
+            try:
+                value = cast(data[key])
+            except (TypeError, ValueError):
+                continue
+            value = max(minimum, min(maximum, value))
+            setattr(self.lm_gen, attribute, value)
+            applied[key] = value
+        return applied
+
     async def decode_and_send(
         self,
         tokens: torch.Tensor,
@@ -84,7 +109,7 @@ class ServerState:
         if len(opus_bytes) > 0:
             await ws.send_bytes(b"\x01" + opus_bytes)
         text_token = tokens[0, 0, 0].item()
-        if text_token not in (0, 3):
+        if text_token not in (0, self.lm_gen.lm_model.text_padding_token_id):
             _text = self.text_tokenizer.id_to_piece(text_token)  # type: ignore
             _text = _text.replace("▁", " ")
             msg = b"\x02" + bytes(_text, encoding="utf8")
@@ -146,6 +171,46 @@ class ServerState:
                                 continue
                             await self.decode_and_send(tokens, ws, opus_writer)
                         log("info", f"frame handled in {1000 * (time.time() - be):.1f}ms")
+                elif kind == 4:  # metadata
+                    try:
+                        metadata = json.loads(message[1:].decode("utf8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        log("warning", "invalid metadata message")
+                        continue
+                    if not isinstance(metadata, dict):
+                        log("warning", "metadata message must be an object")
+                        continue
+                    sampling = metadata.get("sampling")
+                    if isinstance(sampling, dict):
+                        applied = self.update_sampling_params(sampling)
+                        log("info", f"updated sampling params: {applied}")
+                        acknowledgement = json.dumps({
+                            "sampling_applied": applied,
+                            "stream_reset": False,
+                            "pad_token_id": self.lm_gen.lm_model.text_padding_token_id,
+                        }).encode("utf8")
+                        await ws.send_bytes(b"\x04" + acknowledgement)
+                elif kind == 3:  # control
+                    if len(message) < 2:
+                        log("warning", "empty control message")
+                        continue
+                    action = message[1]
+                    if action != 3:  # restart
+                        log("warning", f"unsupported control action {action}")
+                        continue
+
+                    # Keep the WebSocket and its continuous Ogg/Opus stream,
+                    # but clear all model-side conversational state.
+                    all_pcm_data = None
+                    skip_frames = 1
+                    self.mimi.reset_streaming()
+                    self.lm_gen.reset_streaming()
+                    log("info", "streaming context reset")
+                    acknowledgement = json.dumps({
+                        "stream_reset": True,
+                        "reason": "user",
+                    }).encode("utf8")
+                    await ws.send_bytes(b"\x04" + acknowledgement)
                 else:
                     log("warning", f"unknown message kind {kind}")
         finally:
@@ -157,14 +222,43 @@ class ServerState:
 
         log("info", "accepted connection")
 
+        # Only one model stream can run at a time. A page refresh used to leave
+        # the new socket waiting behind an older tab (or even a socket whose
+        # client had already gone away), so the UI remained on CONNECTING.
+        # Make the newest browser connection authoritative and release the
+        # previous stream before acquiring the model lock.
+        self.connection_generation += 1
+        connection_generation = self.connection_generation
+        previous_ws = self.active_ws
+        if previous_ws is not None and not previous_ws.closed:
+            log("info", "replacing the previous connection")
+            await previous_ws.close(
+                code=1001,
+                message=b"replaced by a newer Moshi session",
+            )
+
         async with self.lock:
+            if connection_generation != self.connection_generation or ws.closed:
+                if not ws.closed:
+                    await ws.close(
+                        code=1001,
+                        message=b"superseded before model stream started",
+                    )
+                log("info", "discarded superseded connection")
+                return ws
+
+            self.active_ws = ws
             opus_writer = sphn.OpusStreamWriter(self.mimi.sample_rate)
             opus_reader = sphn.OpusStreamReader(self.mimi.sample_rate)
             self.mimi.reset_streaming()
             self.lm_gen.reset_streaming()
-            # Send the handshake.
-            await ws.send_bytes(b"\x00")
-            await self.recv_loop(ws, opus_reader, opus_writer)
+            try:
+                # Send the handshake only after this socket owns the model.
+                await ws.send_bytes(b"\x00")
+                await self.recv_loop(ws, opus_reader, opus_writer)
+            finally:
+                if self.active_ws is ws:
+                    self.active_ws = None
         log("info", "done with connection")
         return ws
 
@@ -235,6 +329,12 @@ def main():
 
     state = ServerState(checkpoint_info.model_type, mimi, text_tokenizer, lm, args.cfg_coef, args.device,
                         **checkpoint_info.lm_gen_config)
+    pad_token_id = state.lm_gen.lm_model.text_padding_token_id
+    log(
+        "info",
+        f"text PAD token: id={pad_token_id}, "
+        f"piece={text_tokenizer.id_to_piece(pad_token_id)!r}",
+    )
     log("info", "warming up the model")
     state.warmup()
     app = web.Application()

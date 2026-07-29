@@ -9,6 +9,89 @@
 It uses [Mimi][moshi], a state-of-the-art streaming neural audio codec.
 [Talk to Moshi](https://moshi.chat) now in our live demo.
 
+## Start the customized web UI and Moshi server
+
+This repository's customized audio-loop UI and the Python Moshi backend must be
+served together. From inside the development container, use the repository
+launcher:
+
+```bash
+cd /workspaces/moshi
+./start-server.sh
+```
+
+The launcher performs two required steps:
+
+1. It builds `client/` into `client/dist/`.
+2. It starts `python -m moshi.server` with `--static client/dist`, binding to
+   `0.0.0.0:8998`.
+
+There is only one normal web address and one process. The same server provides
+the UI at `/` and the streaming WebSocket at `/api/chat`. Do **not** start Vite
+on port `5173` for normal use, and do not run `python -m moshi.server` without
+the `--static` option: either approach can show the wrong UI or leave the UI
+without a working model stream.
+
+Wait until the terminal prints both `moshi loaded` and:
+
+```text
+Running on http://0.0.0.0:8998
+```
+
+Then open the Docker/container host's LAN address from the remote computer:
+
+```text
+http://<container-host-LAN-IP>:8998
+```
+
+For the current host this may look like `http://10.1.100.112:8998`; use the
+actual LAN address assigned to the machine running the container. Port `8998`
+must be published by the container and allowed by the host firewall.
+
+The Python server uses plain HTTP unless TLS was explicitly enabled. Opening an
+HTTP server with an `https://` URL produces `ERR_SSL_PROTOCOL_ERROR`. Audio-file
+and loop-machine input work over HTTP, but browsers generally require a secure
+context for microphone or system-audio capture from a remote address.
+
+To enable HTTPS, create a certificate trusted by the remote computer with
+`cert.pem` and `key.pem`, then start with:
+
+```bash
+MOSHI_SSL_DIR=/absolute/path/to/certificates ./start-server.sh
+```
+
+Only in that case should the remote browser use
+`https://<container-host-LAN-IP>:8998`.
+
+For automatic container startup, `.devcontainer/start-services.sh` calls the
+same launcher in background mode. Its model log is
+`/tmp/moshi-server-8998.log`. To start it manually in the background:
+
+```bash
+./start-server.sh --background
+tail -f /tmp/moshi-server-8998.log
+```
+
+Quick diagnostics:
+
+```bash
+# The custom UI title should be present.
+curl --fail http://127.0.0.1:8998/ | grep "Moshi Live Lab"
+
+# The server must listen on every container interface for remote access.
+ss -ltnp 'sport = :8998'
+
+# Run this from the remote computer; HTTP 200 confirms network reachability.
+curl --fail --output /dev/null --write-out '%{http_code}\n' \
+  http://<container-host-LAN-IP>:8998/
+```
+
+The model is ready only after the page status changes from
+`Opening model stream` to `Model stream live`. If the page loads but the stream
+does not turn live, check the server terminal—or
+`/tmp/moshi-server-8998.log` for a background launch—for model-loading,
+WebSocket, CUDA, or out-of-memory errors.
+
 ## Organisation of the repository
 
 There are three separate versions of the Moshi inference stack in this repo.
@@ -115,15 +198,28 @@ To compile GPU support, you will also need the [CUDA](https://developer.nvidia.c
 The PyTorch based API can be found in the `moshi` directory. It provides a streaming
 version of the audio tokenizer (mimi) and the language model (moshi).
 
-In order to run in interactive mode, you need to start a server which will
-run the model, you can then use either the web UI or a command line client.
+In order to run in interactive mode, you need to start a server which will run
+the model. For this repository's customized UI, use `./start-server.sh` as
+described at the top of this README.
 
-Start the server with:
+The equivalent explicit command, after building `client/`, is:
+
 ```bash
-python -m moshi.server [--gradio-tunnel] [--hf-repo kyutai/moshika-pytorch-bf16]
+cd /workspaces/moshi
+npm --prefix client run build
+.venv/bin/python -m moshi.server \
+  --host 0.0.0.0 \
+  --port 8998 \
+  --static client/dist \
+  --hf-repo kyutai/moshiko-pytorch-bf16
 ```
 
-And then access the web UI on [localhost:8998](http://localhost:8998).
+Omitting `--static client/dist` makes Moshi download and serve the upstream
+Kyutai client instead of the customized UI in this checkout. Omitting
+`--host 0.0.0.0` binds only to localhost and prevents direct LAN access.
+
+Then access the web UI on [localhost:8998](http://localhost:8998), or use the
+container host's LAN IP from another computer.
 If your GPU is on a distant machine this will not work because for security reasons, websites using HTTP
 are not allowed to use the microphone. There are two ways to get around this:
 - Forward the remote 8998 port to your localhost using ssh `-L` flag. Then
@@ -241,12 +337,80 @@ Prior to running the Gradio demo, please install `gradio-webrtc>=0.0.18`.
 ### Docker Compose (CUDA only)
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
-* Requires [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+This runs only the model service; no public tunnel is created. By default Docker
+publishes it on all host interfaces at port `8998`, so another machine on the
+same LAN can use:
+
+```text
+http://<model-host-lan-ip>:8998
+```
+
+The current Compose image uses Moshi's upstream downloaded client. Use
+`./start-server.sh` inside the development container when you need the
+customized audio-loop UI from `client/`.
+
+Downloaded Hugging Face models are stored on the Docker host at
+`/mnt/data/huggingface_moshi/` and reused by both Compose and the development
+container. Set `HF_CACHE_DIR` for Compose if you need to use a different host
+path.
+
+You can verify the route without loading the model UI:
+
+```bash
+# On the model host, confirm Docker published 0.0.0.0:8998.
+docker compose ps
+
+# On another LAN machine, confirm that the HTTP endpoint is reachable.
+curl --fail --output /dev/null http://<model-host-lan-ip>:8998/
+```
+
+If the second command cannot connect, allow inbound TCP port `8998` from your
+LAN subnet in the model host's firewall. Router port forwarding is neither
+required nor recommended. Moshi does not authenticate clients, so restrict the
+firewall rule to trusted machines or the local subnet.
+
+The bind address, published port, and model are configurable:
+
+```bash
+MOSHI_BIND_ADDRESS=192.168.1.50 MOSHI_PORT=8998 \
+HF_REPO=kyutai/moshika-pytorch-bf16 \
+docker compose up --build
+```
+
+Binding to the host's LAN address instead of `0.0.0.0` avoids listening on any
+other host network. Use `127.0.0.1` when LAN access is not wanted.
+
+Browsers do not normally grant microphone access to an HTTP page loaded from a
+non-localhost address. For the web voice UI, create a certificate trusted by the
+client machine, containing the model host's LAN hostname or IP, as
+`.certs/cert.pem` and `.certs/key.pem`. Then use Moshi's native TLS support:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up --build
+```
+
+Open `https://<model-host-lan-name-or-ip>:8998` and make sure the browser reports
+a trusted connection before granting microphone access. A local CA tool such as
+`mkcert` can create the files, but its root CA must also be installed as trusted
+on every client machine. Set `MOSHI_TLS_DIR` if the certificate directory is
+elsewhere.
+
+Docker Compose requires an NVIDIA GPU and
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
 ## Development
+
+### Agent development container
+
+The repository includes a [development container](.devcontainer/README.md) for
+running coding agents and development tools with less access to the host. It
+uses a non-root user, drops Linux capabilities, disables privilege escalation,
+mounts this repository and `/mnt/data/huggingface_moshi/`, and does not mount the
+host Docker socket or home directory. NVIDIA GPU access and LAN ports `8998` and
+`5173` remain enabled for model and web UI development.
 
 If you wish to install from a clone of this repository, maybe to further develop Moshi, you can do the following:
 ```bash
