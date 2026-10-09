@@ -1103,6 +1103,7 @@ export const Studio: FC = () => {
       ? crossOnsetDeltas.reduce((total, value) => total + value, 0) / crossOnsetDeltas.length
       : null;
     return {
+      windowStart,
       inputs: visible(inputOnsets),
       outputs: visible(outputOnsets),
       lastIn: inputOnsets.length ? `${inputOnsets[inputOnsets.length - 1].toFixed(2)}s` : "—",
@@ -1125,11 +1126,25 @@ export const Studio: FC = () => {
     const inputs = fill(inputOnsets);
     const outputs = fill(outputOnsets);
     const peak = Math.max(1, ...inputs, ...outputs);
-    return inputs.map((value, index) => ({
-      inH: (value / peak) * 100,
-      outH: (outputs[index] / peak) * 100,
-    }));
-  }, [histogramBins, histogramRange, inputOnsets, outputOnsets]);
+    // Last input onset minus last Moshi onset, from −range to +range around zero.
+    const deltas = Array<number>(count).fill(0);
+    crossOnsetDeltas.forEach((delta) => {
+      if (delta < -histogramRange || delta > histogramRange) return;
+      const position = (delta + histogramRange) / (histogramRange * 2);
+      deltas[Math.min(count - 1, Math.floor(position * count))] += 1;
+    });
+    const deltaPeak = Math.max(1, ...deltas);
+    return {
+      intervals: inputs.map((value, index) => ({
+        inH: (value / peak) * 100,
+        outH: (outputs[index] / peak) * 100,
+      })),
+      deltas: deltas.map((value) => (value / deltaPeak) * 100),
+      inCount: inputOnsets.length,
+      outCount: outputOnsets.length,
+      deltaCount: crossOnsetDeltas.length,
+    };
+  }, [crossOnsetDeltas, histogramBins, histogramRange, inputOnsets, outputOnsets]);
 
   return (
     <main className="studio">
@@ -1363,6 +1378,11 @@ export const Studio: FC = () => {
                 ))}
               </div>
               {!onsetRecording && <span className="onset-wait">esperando ×3</span>}
+              <div className="onset-scale" aria-hidden="true">
+                <span>{raster.windowStart.toFixed(0)}s</span>
+                <span>{(raster.windowStart + RASTER_WINDOW_SECONDS / 2).toFixed(1)}s</span>
+                <span>{(raster.windowStart + RASTER_WINDOW_SECONDS).toFixed(0)}s</span>
+              </div>
             </div>
             <div className="onset-times">
               <span title="Último ataque de la entrada">{raster.lastIn}</span>
@@ -1402,6 +1422,7 @@ export const Studio: FC = () => {
               <div className="histogram-head">
                 <span>Δt</span>
                 <span className="histogram-tools">
+                  <small title="Ataques registrados: entrada · Moshi">in {histogram.inCount} · out {histogram.outCount}</small>
                   <button type="button" className="mini-key" onClick={resetOnsetAnalysis} aria-label="Volver a esperar una repetición" title="Volver a esperar una repetición">
                     <Icon d={ICONS.reset} size={12} />
                   </button>
@@ -1412,10 +1433,10 @@ export const Studio: FC = () => {
               </div>
               <div
                 className="histogram-bars"
-                style={{ gridTemplateColumns: `repeat(${histogram.length}, minmax(0, 1fr))` }}
-                title="Intervalos entre ataques: trama = entrada, negro = Moshi"
+                style={{ gridTemplateColumns: `repeat(${histogram.intervals.length}, minmax(0, 1fr))` }}
+                title="Intervalos entre ataques consecutivos: trama = entrada, negro = Moshi"
               >
-                {histogram.map((bin, index) => (
+                {histogram.intervals.map((bin, index) => (
                   <div className="histogram-bin" key={index}>
                     <i className="bar-in" style={{ height: `${bin.inH}%` }} />
                     <i className="bar-out" style={{ height: `${bin.outH}%` }} />
@@ -1423,6 +1444,29 @@ export const Studio: FC = () => {
                 ))}
               </div>
               <div className="histogram-scale"><span>0</span><span>{histogramRange.toFixed(1)}s</span></div>
+            </div>
+            <div className="histogram">
+              <div className="histogram-head">
+                <span>IN − OUT</span>
+                <small title="Diferencias medidas">n {histogram.deltaCount}</small>
+              </div>
+              <div
+                className="histogram-bars histogram-bars-signed"
+                style={{ gridTemplateColumns: `repeat(${histogram.deltas.length}, minmax(0, 1fr))` }}
+                title="Último ataque de la entrada menos último ataque de Moshi. A la izquierda del cero, la entrada vino primero"
+              >
+                {histogram.deltas.map((height, index) => (
+                  <div className="histogram-bin" key={index}>
+                    <i className="bar-out" style={{ height: `${height}%` }} />
+                  </div>
+                ))}
+                <i className="histogram-zero" aria-hidden="true" />
+              </div>
+              <div className="histogram-scale">
+                <span>−{histogramRange.toFixed(1)}s</span>
+                <span>0</span>
+                <span>+{histogramRange.toFixed(1)}s</span>
+              </div>
             </div>
           </div>
         </section>
