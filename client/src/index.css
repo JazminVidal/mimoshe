@@ -496,28 +496,13 @@ output {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   transform-origin: 50% 60%;
 }
 
 .monologue-body.draining {
   animation: drain 0.72s steps(8, end) forwards;
-}
-
-.monologue-history {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 16px;
-  line-height: 22px;
-  color: var(--muted);
-}
-
-.monologue-history span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .monologue-current {

@@ -1205,10 +1205,10 @@ export const Studio: FC = () => {
     void beginMidiLearn("voice-pad-0");
   };
 
-  // Past lines above, present line below; repeated sentences are marked in pencil.
+  // Only the present line is shown; repeated sentences are marked in pencil.
   const monologue = useMemo(() => {
     const clean = transcript.replace(/\s+/g, " ").trim();
-    if (!clean) return { history: [] as string[], current: [] as { text: string; repeated: boolean }[] };
+    if (!clean) return { current: [] as { text: string; repeated: boolean }[] };
     const sentences = clean.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
     const clip = (text: string, size: number) => (text.length > size ? `…${text.slice(-size)}` : text);
     const current: string[] = [];
@@ -1220,14 +1220,10 @@ export const Studio: FC = () => {
       budget -= sentence.length;
       if (budget <= 0) break;
     }
-    const history = sentences
-      .slice(Math.max(0, sentences.length - current.length - HISTORY_LINES), sentences.length - current.length)
-      .map((sentence) => clip(sentence, 72));
     const normalize = (text: string) => text.toLocaleLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "");
     const counts = new Map<string, number>();
     current.forEach((text) => counts.set(normalize(text), (counts.get(normalize(text)) ?? 0) + 1));
     return {
-      history,
       current: current.map((text) => ({ text, repeated: (counts.get(normalize(text)) ?? 0) > 1 })),
     };
   }, [transcript]);
@@ -1517,11 +1513,6 @@ export const Studio: FC = () => {
             </div>
             {monologue.current.length ? (
               <div className={`monologue-body ${draining ? "draining" : ""}`} ref={transcriptRef}>
-                <div className="monologue-history">
-                  {monologue.history.map((line, index) => (
-                    <span key={`${index}-${line}`}>› {line}</span>
-                  ))}
-                </div>
                 <p className="monologue-current" aria-live="polite">
                   {monologue.current.map((segment, index) => (
                     <span key={`${index}-${segment.text}`} className={segment.repeated ? "repeated" : undefined}>
@@ -1802,7 +1793,6 @@ export const Studio: FC = () => {
 
 const MODEL_NAME = "moshiko-7b";
 const CURRENT_LINE_BUDGET = 72;
-const HISTORY_LINES = 4;
 const RASTER_WINDOW_SECONDS = 15;
 
 const ICONS = {
