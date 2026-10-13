@@ -15,6 +15,8 @@ import { AudioScope } from "./AudioScope";
 import { EnvelopeXYScope } from "./EnvelopeXYScope";
 import { InfoTip } from "./InfoTip";
 import { OnsetAnalysis } from "./OnsetAnalysis";
+import { PhaseClock } from "./PhaseClock";
+import { PhaseIndicator } from "./PhaseIndicator";
 
 type ConnectionState = "connecting" | "live" | "offline" | "busy";
 type InputMode = "sample" | "microphone" | "system";
@@ -31,6 +33,55 @@ type SamplingParams = {
   audioTopk: number;
   padBias: number;
 };
+
+type TrajectoryPreset = "orbit" | "pulse" | "walk";
+const TRAJECTORY_PRESETS: TrajectoryPreset[] = ["orbit", "pulse", "walk"];
+
+type PerturbationParams = {
+  enabled: boolean;
+  layer: number;
+  strength: number;
+  frequency: number;
+  harmonics: number;
+  seed: number;
+  preset: TrajectoryPreset;
+  walk_step: number;
+};
+
+type PerturbationStatus = {
+  params: PerturbationParams;
+  layer_count: number;
+  dimension: number;
+  frame_rate: number;
+  max_harmonics: number;
+  max_frequency: number;
+  phase: number;
+};
+
+const DEFAULT_PERTURBATION: PerturbationParams = {
+  enabled: false, layer: 16, strength: 0.2, frequency: 0.25, harmonics: 3, seed: 1234,
+  preset: "orbit", walk_step: 0.1,
+};
+
+const TRAJECTORY_DESCRIPTIONS: Record<TrajectoryPreset, string> = {
+  orbit: "Smooth periodic motion in seeded random directions.",
+  pulse: "One model-frame kick at each cycle start, then exactly zero injection.",
+  walk: "A random step each model frame; jump back to the first vector each cycle.",
+};
+
+function loadPerturbation(): PerturbationParams {
+  try {
+    const saved = JSON.parse(localStorage.getItem("moshi-studio-perturbation") ?? "{}");
+    return {
+      ...DEFAULT_PERTURBATION,
+      ...saved,
+      preset: saved?.preset === "pulse" || saved?.preset === "walk" ? saved.preset : "orbit",
+      enabled: false,
+    };
+  } catch {
+    return DEFAULT_PERTURBATION;
+  }
+}
 
 type OnsetGate = {
   active: boolean;
@@ -190,6 +241,7 @@ export const Studio: FC = () => {
   const [triggerRate, setTriggerRate] = useState(0.5);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [inputGain, setInputGain] = useState(0.85);
+  const [inputMonitorMuted, setInputMonitorMuted] = useState(false);
   const [outputGain, setOutputGain] = useState(0.9);
   const [autoGainEnabled, setAutoGainEnabled] = useState(true);
   const [autoGainDb, setAutoGainDb] = useState(0);
@@ -211,6 +263,14 @@ export const Studio: FC = () => {
   const [histogramBins, setHistogramBins] = useState(12);
   const [midiMappings, setMidiMappings] = useState<Record<string, MidiMapping>>(loadMidiMappings);
   const [midiLearning, setMidiLearning] = useState<string | null>(null);
+  const [midiState, setMidiState] = useState<"idle" | "requesting" | "ready" | "error">("idle");
+  const [midiDevices, setMidiDevices] = useState<string[]>([]);
+  const [midiError, setMidiError] = useState("");
+  const [lastMidiMessage, setLastMidiMessage] = useState("");
+  const [perturbation, setPerturbation] = useState<PerturbationParams>(loadPerturbation);
+  const [perturbationStatus, setPerturbationStatus] = useState<PerturbationStatus | null>(null);
+  const phaseClock = useMemo(() => new PhaseClock(), []);
+  const phaseResetPendingRef = useRef(false);
 
   const socketRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -220,6 +280,7 @@ export const Studio: FC = () => {
   const outputDetectorRef = useRef<AnalyserNode | null>(null);
   const autoGainRef = useRef<GainNode | null>(null);
   const outputBusRef = useRef<GainNode | null>(null);
+  const outputPannerRef = useRef<StereoPannerNode | null>(null);
   const recorderRef = useRef<any>(null);
   const decoderRef = useRef<Worker | null>(null);
   const sampleBufferRef = useRef<AudioBuffer | null>(null);
@@ -235,6 +296,7 @@ export const Studio: FC = () => {
   const sessionStartRef = useRef(Date.now());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const paramsRef = useRef(params);
+  const perturbationRef = useRef(perturbation);
   const connectRef = useRef<() => void>(() => {});
   const reconnectTimerRef = useRef<number | null>(null);
   const allowReconnectRef = useRef(true);
@@ -248,6 +310,8 @@ export const Studio: FC = () => {
     output: { active: false, lastOnset: -Infinity },
   });
   const midiAccessRef = useRef<MIDIAccess | null>(null);
+  const midiRequestRef = useRef<Promise<MIDIAccess | null> | null>(null);
+  const midiTelemetryTimeRef = useRef(-Infinity);
   const midiLearningRef = useRef<string | null>(null);
   const midiMappingsRef = useRef(midiMappings);
   const midiTargetHandlersRef = useRef<Map<string, (normalizedValue: number) => void>>(new Map());
@@ -257,6 +321,7 @@ export const Studio: FC = () => {
   );
 
   const secureCapture = window.isSecureContext || window.location.hostname === "localhost";
+  const monitorMuted = inputMonitorMuted || inputMode === "microphone";
   triggerRateRef.current = triggerRate;
   playbackRateRef.current = playbackRate;
   midiMappingsRef.current = midiMappings;
@@ -264,6 +329,17 @@ export const Studio: FC = () => {
 
   midiMessageHandlerRef.current = (input, data) => {
     const status = data[0] ?? 0;
+    const messageType = status & 0xf0;
+    const now = performance.now();
+    if (status < 0xf0 && data.length >= 2 && now - midiTelemetryTimeRef.current >= 50) {
+      const description = messageType === 0xb0
+        ? `CC ${data[1]} = ${data[2]}`
+        : messageType === 0x90 || messageType === 0x80
+          ? `NOTE ${data[1]} = ${data[2]} (learn uses CC)`
+          : `MSG ${Array.from(data).map((byte) => byte.toString(16).padStart(2, "0")).join(" ")}`;
+      setLastMidiMessage(`CH ${(status & 0x0f) + 1} · ${description}`);
+      midiTelemetryTimeRef.current = now;
+    }
     if ((status & 0xf0) !== 0xb0 || data.length < 3) return;
     const channel = status & 0x0f;
     const controller = data[1];
@@ -334,12 +410,54 @@ export const Studio: FC = () => {
   };
 
   const attachMidiInputs = useCallback((access: MIDIAccess) => {
+    const names: string[] = [];
     access.inputs.forEach((input) => {
+      if (input.state === "disconnected") {
+        input.onmidimessage = null;
+        return;
+      }
+      names.push(input.name || "MIDI input");
       input.onmidimessage = (event) => {
         if (event.data) midiMessageHandlerRef.current(input, event.data);
       };
     });
+    setMidiDevices(names);
   }, []);
+
+  const enableMidi = useCallback((): Promise<MIDIAccess | null> => {
+    if (midiAccessRef.current) {
+      attachMidiInputs(midiAccessRef.current);
+      return Promise.resolve(midiAccessRef.current);
+    }
+    if (midiRequestRef.current) return midiRequestRef.current;
+    const requestMidiAccess = (
+      navigator as unknown as { requestMIDIAccess?: () => Promise<MIDIAccess> }
+    ).requestMIDIAccess?.bind(navigator);
+    if (!requestMidiAccess) {
+      setMidiState("error");
+      setMidiError(window.isSecureContext
+        ? "Web MIDI is unavailable in this browser. Try Chrome or Edge."
+        : "Open http://localhost:8998 through your SSH tunnel to enable Web MIDI.");
+      return Promise.resolve(null);
+    }
+    setMidiState("requesting");
+    setMidiError("");
+    const request = requestMidiAccess().then((access) => {
+      midiAccessRef.current = access;
+      attachMidiInputs(access);
+      access.onstatechange = () => attachMidiInputs(access);
+      setMidiState("ready");
+      return access;
+    }).catch(() => {
+      setMidiState("error");
+      setMidiError("MIDI permission denied. Allow MIDI in the browser's site settings, then retry.");
+      return null;
+    }).finally(() => {
+      midiRequestRef.current = null;
+    });
+    midiRequestRef.current = request;
+    return request;
+  }, [attachMidiInputs]);
 
   const beginMidiLearn = useCallback(async (target: string) => {
     if (midiLearningRef.current === target) {
@@ -349,53 +467,17 @@ export const Studio: FC = () => {
       return;
     }
 
-    const requestMidiAccess = (
-      navigator as unknown as { requestMIDIAccess?: () => Promise<MIDIAccess> }
-    ).requestMIDIAccess?.bind(navigator);
-    if (!requestMidiAccess) {
-      setStatusMessage("Web MIDI requires a supported browser over HTTPS or localhost");
-      return;
-    }
-
-    try {
-      let access = midiAccessRef.current;
-      if (!access) {
-        access = await requestMidiAccess();
-        midiAccessRef.current = access;
-        attachMidiInputs(access);
-        access.onstatechange = () => attachMidiInputs(access!);
-      }
+    const access = await enableMidi();
+    if (access) {
       midiLearningRef.current = target;
       setMidiLearning(target);
       setStatusMessage("MIDI learn armed · move a CC control");
-    } catch {
-      setStatusMessage("MIDI access was not granted");
     }
-  }, [attachMidiInputs]);
+  }, [enableMidi]);
 
   useEffect(() => {
-    if (!Object.keys(midiMappingsRef.current).length || midiAccessRef.current) return;
-    const requestMidiAccess = (
-      navigator as unknown as { requestMIDIAccess?: () => Promise<MIDIAccess> }
-    ).requestMIDIAccess?.bind(navigator);
-    if (!requestMidiAccess) return;
-
-    let cancelled = false;
-    void requestMidiAccess()
-      .then((access) => {
-        if (cancelled) return;
-        midiAccessRef.current = access;
-        attachMidiInputs(access);
-        access.onstatechange = () => attachMidiInputs(access);
-      })
-      .catch(() => {
-        // Stored mappings remain available if permission is granted later
-        // through an explicit MIDI-learn action.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attachMidiInputs]);
+    if (Object.keys(midiMappingsRef.current).length) void enableMidi();
+  }, [enableMidi]);
 
   const registerMidiTarget = useCallback((
     target: string,
@@ -471,6 +553,7 @@ export const Studio: FC = () => {
     outputDetectorRef.current = outputDetector;
     autoGainRef.current = autoGain;
     outputBusRef.current = outputBus;
+    outputPannerRef.current = outputPanner;
     setInputAnalyser(inputScope);
     setOutputAnalyser(outputScope);
 
@@ -525,9 +608,16 @@ export const Studio: FC = () => {
     });
   }, [send]);
 
+  const sendPerturbation = useCallback((nextParams: PerturbationParams) => {
+    send({ type: "metadata", data: { perturbation: nextParams } });
+  }, [send]);
+
   const connect = useCallback(() => {
     socketRef.current?.close();
     setConnection("connecting");
+    setPerturbationStatus(null);
+    phaseClock.reset(0, performance.now());
+    phaseResetPendingRef.current = false;
     setStatusMessage("Opening model stream");
     const socket = new WebSocket(buildSocketUrl());
     socket.binaryType = "arraybuffer";
@@ -540,6 +630,7 @@ export const Studio: FC = () => {
         sessionStartRef.current = Date.now();
         setElapsed(0);
         sendSamplingParams(paramsRef.current);
+        sendPerturbation(perturbationRef.current);
       } else if (message.type === "audio") {
         const data = message.data;
         decoderRef.current?.postMessage({ command: "decode", pages: data }, [data.buffer]);
@@ -554,6 +645,36 @@ export const Studio: FC = () => {
           && typeof metadata.pad_token_id === "number"
         ) {
           setPadTokenId(metadata.pad_token_id);
+        }
+        if (
+          typeof metadata === "object" && metadata !== null
+          && "perturbation_status" in metadata
+          && typeof metadata.perturbation_status === "object"
+          && metadata.perturbation_status !== null
+        ) {
+          const status = metadata.perturbation_status as PerturbationStatus;
+          setPerturbationStatus(status);
+          phaseClock.setFrameRate(status.frame_rate);
+          if (!phaseClock.initialized || (phaseResetPendingRef.current && status.phase === 0)) {
+            phaseClock.reset(status.phase, performance.now());
+            phaseResetPendingRef.current = false;
+          }
+        }
+        if (
+          typeof metadata === "object" && metadata !== null
+          && "perturbation_phase" in metadata
+          && typeof metadata.perturbation_phase === "number"
+          && Number.isFinite(metadata.perturbation_phase)
+          && metadata.perturbation_phase >= 0 && metadata.perturbation_phase < 1
+        ) {
+          if ("stream_reset" in metadata && metadata.stream_reset === true) {
+            phaseClock.reset(metadata.perturbation_phase, performance.now());
+            phaseResetPendingRef.current = false;
+          } else if (!phaseResetPendingRef.current) {
+            // Consume every packet synchronously: React may batch a burst of
+            // renders, but the display clock must retain every cycle wrap.
+            phaseClock.observe(metadata.perturbation_phase, performance.now());
+          }
         }
       } else if (message.type === "error") {
         setStatusMessage(message.data);
@@ -576,7 +697,7 @@ export const Studio: FC = () => {
       setConnection("offline");
       setStatusMessage("Could not reach model");
     };
-  }, [sendSamplingParams]);
+  }, [phaseClock, sendPerturbation, sendSamplingParams]);
   connectRef.current = connect;
 
   useEffect(() => {
@@ -679,10 +800,16 @@ export const Studio: FC = () => {
     const context = audioContextRef.current;
     const monitor = inputMonitorGainRef.current;
     if (!context || !monitor) return;
-    const shouldMonitor = sourceActive && inputMode !== "microphone";
+    // The monitor is a separate speaker branch; recorder input stays connected.
+    const shouldMonitor = sourceActive && !monitorMuted;
     monitor.gain.cancelScheduledValues(context.currentTime);
     monitor.gain.setTargetAtTime(shouldMonitor ? 1 : 0, context.currentTime, 0.01);
-  }, [inputMode, sourceActive]);
+    const panner = outputPannerRef.current;
+    if (panner) {
+      panner.pan.cancelScheduledValues(context.currentTime);
+      panner.pan.setTargetAtTime(monitorMuted ? 0 : 1, context.currentTime, 0.01);
+    }
+  }, [monitorMuted, sourceActive]);
 
   useEffect(() => {
     const updateMeter = () => {
@@ -989,6 +1116,21 @@ export const Studio: FC = () => {
     });
   }, [sendSamplingParams]);
 
+  const updatePerturbation = useCallback(<K extends keyof PerturbationParams>(
+    key: K, value: PerturbationParams[K],
+  ) => {
+    const next = { ...perturbationRef.current, [key]: value };
+    perturbationRef.current = next;
+    setPerturbation(next);
+    localStorage.setItem("moshi-studio-perturbation", JSON.stringify(next));
+    sendPerturbation(next);
+  }, [sendPerturbation]);
+
+  useEffect(() => registerMidiTarget("orbit-preset", (normalizedValue) => {
+    const index = Math.min(TRAJECTORY_PRESETS.length - 1, Math.floor(normalizedValue * TRAJECTORY_PRESETS.length));
+    updatePerturbation("preset", TRAJECTORY_PRESETS[index]);
+  }), [registerMidiTarget, updatePerturbation]);
+
   const resetContext = useCallback(() => {
     scheduledSourcesRef.current.forEach((source) => {
       try {
@@ -1042,6 +1184,25 @@ export const Studio: FC = () => {
         </div>
         <div className="header-telemetry">
           <div className={`status-pill ${statusTone}`}><i />{statusMessage}</div>
+          <div className="midi-monitor">
+            <button
+              className={`status-pill midi-access-button ${midiState === "ready" && midiDevices.length ? "live" : midiState === "error" ? "offline" : ""}`}
+              onClick={() => void enableMidi()}
+              disabled={midiState === "requesting"}
+              title={midiDevices.length ? midiDevices.join(", ") : "Connect your MIDI controller to the computer running this browser, then allow MIDI access."}
+            >
+              <i />
+              {midiState === "ready"
+                ? midiDevices.length ? `MIDI · ${midiDevices.length} input${midiDevices.length === 1 ? "" : "s"}` : "MIDI · no inputs"
+                : midiState === "requesting" ? "MIDI · allow access…"
+                  : midiState === "error" ? "MIDI · retry" : "Enable MIDI"}
+            </button>
+            <small className={midiError ? "midi-error" : ""} title={midiError || midiDevices.join(", ")}>
+              {midiError || (midiState === "ready"
+                ? lastMidiMessage || (midiDevices.length ? `${midiDevices.join(", ")} · move a control` : "Connect a controller to this computer")
+                : "Click to check devices")}
+            </small>
+          </div>
           <div className="session-clock"><span>SESSION</span>{formatTime(elapsed)}</div>
           {!audioEnabled && (
             <button className="primary-button compact" onClick={enableAudio}>Enable sound</button>
@@ -1069,7 +1230,22 @@ export const Studio: FC = () => {
                 <InfoTip text="Choose a built-in pad, uploaded loop, microphone, or shared system audio to feed Moshi." />
               </h2>
             </div>
-            <div className={`activity-label ${sourceActive ? "active" : ""}`}><i />{sourceLabel}</div>
+            <div className="input-heading-actions">
+              <div className={`activity-label ${sourceActive ? "active" : ""}`}><i />{sourceLabel}</div>
+              <button
+                type="button"
+                className={`monitor-mute-button ${monitorMuted ? "muted" : ""}`}
+                aria-pressed={monitorMuted}
+                aria-label="Mute input monitor"
+                disabled={inputMode === "microphone"}
+                title={inputMode === "microphone"
+                  ? "Microphone monitoring is always muted to avoid feedback. Moshi plays through both speakers."
+                  : "Mute input in the speakers while continuing to feed Moshi. Moshi then plays through both speakers."}
+                onClick={() => setInputMonitorMuted((muted) => !muted)}
+              >
+                {monitorMuted ? "Monitor muted" : "Mute monitor"}
+              </button>
+            </div>
           </div>
 
           <div className="source-tabs" role="tablist" aria-label="Audio input source">
@@ -1089,7 +1265,7 @@ export const Studio: FC = () => {
 
           <div className="scope-wrap">
             <AudioScope analyser={inputAnalyser} color="#f97316" idleLabel="WAITING FOR INPUT" />
-            <div className="scope-meta"><span>MONITOR / LEFT</span><span>24 kHz OPUS</span></div>
+            <div className="scope-meta"><span>{monitorMuted ? "INPUT MONITOR / MUTED" : "MONITOR / LEFT"}</span><span>24 kHz OPUS</span></div>
             <div className="level-meter"><span style={{ width: `${inputLevel}%` }} /></div>
           </div>
 
@@ -1193,7 +1369,7 @@ export const Studio: FC = () => {
               <p className="panel-index">02 / RESPONSE</p>
               <h2 className="title-with-help">
                 Moshi output
-                <InfoTip text="Moshi audio is routed to the right channel. The XY scope compares smoothed input and output envelopes." />
+                <InfoTip text="Moshi plays in the right channel with input monitoring on, or through both speakers with input monitoring muted. The XY scope compares smoothed input and output envelopes." />
               </h2>
             </div>
             <div className={`activity-label ${connection === "live" ? "active green" : ""}`}><i />STREAM {connection.toUpperCase()}</div>
@@ -1201,7 +1377,7 @@ export const Studio: FC = () => {
           <div className="output-visualizers">
             <div className="scope-wrap output-scope">
               <AudioScope analyser={outputAnalyser} color="#22d3a6" idleLabel="WAITING FOR MOSHI" />
-              <div className="scope-meta"><span>MOSHI / RIGHT</span><span>BUFFERED LIVE</span></div>
+              <div className="scope-meta"><span>{monitorMuted ? "MOSHI / L + R" : "MOSHI / RIGHT"}</span><span>BUFFERED LIVE</span></div>
               <div className="level-meter output"><span style={{ width: `${outputLevel}%` }} /></div>
             </div>
             <EnvelopeXYScope inputAnalyser={inputAnalyser} outputAnalyser={outputAnalyser} />
@@ -1222,6 +1398,78 @@ export const Studio: FC = () => {
               </div>
             )}
           </div>
+          <details className="perturbation-panel" open>
+            <summary className="experiment-summary">
+              <span className="title-with-help">
+                Hidden-state trajectories
+                <InfoTip text="Adds a seeded trajectory after one temporal-transformer layer: smooth orbit, cycle-start pulse, or looping random walk. It changes text and audio generation; recurring audio is not guaranteed." />
+              </span>
+              <span>{perturbationStatus ? `${perturbationStatus.dimension}D` : "waiting for engine"}</span>
+            </summary>
+            <div className="perturbation-toolbar">
+              <button
+                className={`orbit-enable ${perturbation.enabled ? "active" : ""}`}
+                role="switch"
+                aria-checked={perturbation.enabled}
+                disabled={connection !== "live" || !perturbationStatus}
+                onClick={() => updatePerturbation("enabled", !perturbation.enabled)}
+              >
+                {perturbation.enabled ? "Perturbation ON" : "Perturbation OFF"}
+              </button>
+              <button
+                onClick={() => updatePerturbation("seed", Math.floor(Math.random() * 2147483647))}
+                title="Generate a different seeded trajectory; keep the cycle phase and conversation"
+              >New path</button>
+              <button
+                disabled={connection !== "live" || !perturbationStatus}
+                onClick={() => {
+                  phaseResetPendingRef.current = true;
+                  phaseClock.reset(0, performance.now());
+                  send({ type: "metadata", data: { perturbation_reset_phase: true } });
+                }}
+                title="Restart the trajectory phase without clearing model context"
+              >Phase ↺</button>
+              <span title="Seed fixes the orbit directions">seed {perturbation.seed}</span>
+            </div>
+            <div className="trajectory-preset-row">
+              <label htmlFor="trajectory-preset">Trajectory</label>
+              <InfoTip text="Presets share the same cycle clock and layer. Switching preserves phase and conversation context. Pulse means zero added vector between kicks, not necessarily silent Moshi output. Walk resets its vector at each cycle boundary." />
+              <button
+                type="button"
+                className={`midi-learn-button ${midiLearning === "orbit-preset" ? "learning" : ""} ${midiMappings["orbit-preset"] ? "mapped" : ""}`}
+                title="MIDI learn trajectory: CC 0–42 selects orbit, 43–84 pulse, 85–127 walk"
+                aria-label="MIDI learn trajectory preset"
+                onClick={() => void beginMidiLearn("orbit-preset")}
+              >[ml]</button>
+              <select
+                id="trajectory-preset"
+                aria-label="Trajectory preset"
+                value={perturbation.preset}
+                onChange={(event) => updatePerturbation("preset", event.target.value as TrajectoryPreset)}
+              >
+                <option value="orbit">Smooth orbit</option>
+                <option value="pulse">Cycle-start pulse</option>
+                <option value="walk">Looping random walk</option>
+              </select>
+            </div>
+            <p className="trajectory-description">{TRAJECTORY_DESCRIPTIONS[perturbation.preset]}</p>
+            <div className="perturbation-controls">
+              <RangeControl label="Strength" help="Overall trajectory gain relative to hidden-state RMS, from 0 to 10. Smooth orbit and pulse vectors have unit RMS before gain; walk magnitude grows as steps accumulate. Start at 0.05–0.2; high values can destabilize generation. Zero bypasses immediately; conversation effects remain until context is cleared." value={perturbation.strength} min={0} max={10} step={0.01} unit="× RMS" onChange={(value) => updatePerturbation("strength", value)} {...midiControlProps("orbit-strength")} />
+              <RangeControl label="Cycle rate" help="Orbits per second of model audio time, up to 6 Hz. Changing rate preserves phase. Silent input advances the orbit; stopped inference pauses it. Higher harmonics may alias at the model frame rate." value={perturbation.frequency} min={0.01} max={perturbationStatus?.max_frequency ?? 6} step={0.01} unit="Hz" onChange={(value) => updatePerturbation("frequency", value)} {...midiControlProps("orbit-frequency")} />
+              <RangeControl label="Layer" help="One-based temporal transformer block. The orbit is added after this block; changing layers keeps model context but may abruptly change behavior." value={perturbation.layer} min={1} max={perturbationStatus?.layer_count ?? 32} step={1} unit="" onChange={(value) => updatePerturbation("layer", value)} {...midiControlProps("orbit-layer")} />
+              {perturbation.preset === "orbit" && (
+                <RangeControl label="Harmonics" help="Fourier harmonics in random orthonormal directions. One makes a circle; more add complex closed motion. Changing this regenerates directions using the same seed." value={perturbation.harmonics} min={1} max={perturbationStatus?.max_harmonics ?? 6} step={1} unit="" onChange={(value) => updatePerturbation("harmonics", value)} {...midiControlProps("orbit-harmonics")} />
+              )}
+              {perturbation.preset === "walk" && (
+                <RangeControl label="Walk step" help="RMS of each random-direction increment before overall strength. Zero holds the first vector. Larger steps and longer cycles produce more accumulated drift; the vector jumps back at each cycle boundary." value={perturbation.walk_step} min={0} max={1} step={0.01} unit="× RMS" onChange={(value) => updatePerturbation("walk_step", value)} {...midiControlProps("orbit-walk-step")} />
+              )}
+            </div>
+            <div className="orbit-telemetry">
+              <span>{(1 / perturbation.frequency).toFixed(2)} s/cycle</span>
+              <span>{perturbationStatus?.frame_rate ?? 12.5} steps/s</span>
+              <PhaseIndicator clock={phaseClock} />
+            </div>
+          </details>
           <OnsetAnalysis
             armed={onsetRecording}
             repetition={repeatedSequence}
@@ -1329,6 +1577,7 @@ export const Studio: FC = () => {
 
 type RangeControlProps = {
   label: string;
+  help?: string;
   value: number;
   min: number;
   max: number;
@@ -1348,6 +1597,7 @@ type RangeControlProps = {
 
 const RangeControl: FC<RangeControlProps> = ({
   label,
+  help,
   value,
   min,
   max,
@@ -1381,6 +1631,7 @@ const RangeControl: FC<RangeControlProps> = ({
     <div className={`range-control ${accent}`}>
       <span className="range-label-row">
         <span className="range-label">{label}</span>
+        {help && <InfoTip text={help} />}
         {midiKey && onMidiLearn && (
           <button
             type="button"

@@ -24,6 +24,7 @@ import torch
 from .client_utils import log
 from .models import loaders, MimiModel, LMModel, LMGen
 from .run_inference import get_condition_tensors
+from .perturbation import CyclicPerturbation
 
 
 def seed_all(seed):
@@ -50,6 +51,9 @@ class ServerState:
         self.model_type = model_type
         self.mimi = mimi
         self.text_tokenizer = text_tokenizer
+        self.perturbation = CyclicPerturbation(
+            lm.transformer, lm.text_linear.in_features, mimi.frame_rate,
+        )
         condition_tensors = get_condition_tensors(model_type, lm, batch_size=1, cfg_coef=cfg_coef)
         self.lm_gen = LMGen(lm, cfg_coef=cfg_coef, condition_tensors=condition_tensors, **kwargs)
 
@@ -166,7 +170,13 @@ class ServerState:
                             self.mimi.reset_streaming()
                             skip_frames -= 1
                         for c in range(codes.shape[-1]):
+                            self.perturbation.prepare_step()
                             tokens = self.lm_gen.step(codes[:, :, c: c + 1])
+                            # Report every inference step, including startup
+                            # steps with no output tokens yet. Keep this small:
+                            # full configuration is sent only on control changes.
+                            report = json.dumps({"perturbation_phase": self.perturbation.phase})
+                            await ws.send_bytes(b"\x04" + report.encode("utf8"))
                             if tokens is None:
                                 continue
                             await self.decode_and_send(tokens, ws, opus_writer)
@@ -190,6 +200,18 @@ class ServerState:
                             "pad_token_id": self.lm_gen.lm_model.text_padding_token_id,
                         }).encode("utf8")
                         await ws.send_bytes(b"\x04" + acknowledgement)
+                    perturbation = metadata.get("perturbation")
+                    if isinstance(perturbation, dict):
+                        applied = self.perturbation.update(perturbation)
+                        acknowledgement = json.dumps({
+                            "perturbation_status": applied,
+                            "stream_reset": False,
+                        }).encode("utf8")
+                        await ws.send_bytes(b"\x04" + acknowledgement)
+                    if metadata.get("perturbation_reset_phase") is True:
+                        self.perturbation.reset_phase()
+                        report = json.dumps({"perturbation_status": self.perturbation.status()})
+                        await ws.send_bytes(b"\x04" + report.encode("utf8"))
                 elif kind == 3:  # control
                     if len(message) < 2:
                         log("warning", "empty control message")
@@ -205,10 +227,12 @@ class ServerState:
                     skip_frames = 1
                     self.mimi.reset_streaming()
                     self.lm_gen.reset_streaming()
+                    self.perturbation.reset_phase()
                     log("info", "streaming context reset")
                     acknowledgement = json.dumps({
                         "stream_reset": True,
                         "reason": "user",
+                        "perturbation_phase": self.perturbation.phase,
                     }).encode("utf8")
                     await ws.send_bytes(b"\x04" + acknowledgement)
                 else:
@@ -252,9 +276,13 @@ class ServerState:
             opus_reader = sphn.OpusStreamReader(self.mimi.sample_rate)
             self.mimi.reset_streaming()
             self.lm_gen.reset_streaming()
+            self.perturbation.update({"enabled": False})
+            self.perturbation.reset_phase()
             try:
                 # Send the handshake only after this socket owns the model.
                 await ws.send_bytes(b"\x00")
+                report = json.dumps({"perturbation_status": self.perturbation.status()})
+                await ws.send_bytes(b"\x04" + report.encode("utf8"))
                 await self.recv_loop(ws, opus_reader, opus_writer)
             finally:
                 if self.active_ws is ws:
@@ -383,5 +411,6 @@ def main():
     web.run_app(app, host=args.host , port=args.port, ssl_context=ssl_context)
 
 
-with torch.no_grad():
-    main()
+if __name__ == "__main__":
+    with torch.no_grad():
+        main()

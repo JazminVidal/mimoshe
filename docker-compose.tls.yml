@@ -1,0 +1,13 @@
+services:
+  moshi:
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8998"
+      - --hf-repo
+      - ${HF_REPO:-kyutai/moshiko-pytorch-bf16}
+      - --ssl
+      - /run/moshi-tls
+    volumes:
+      - ${MOSHI_TLS_DIR:-./.certs}:/run/moshi-tls:ro

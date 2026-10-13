@@ -136,15 +136,18 @@ export const OnsetAnalysis: FC<OnsetAnalysisProps> = ({
   const visibleOutputs = outputOnsets.filter((time) => time >= windowStart && time <= windowEnd);
 
   return (
-    <section className={`onset-analysis ${armed ? "recording" : ""}`}>
-      <div className="onset-analysis-heading">
+    <details className={`onset-analysis ${armed ? "recording" : ""}`} open>
+      <summary className="onset-analysis-heading experiment-summary">
         <div>
           <span className="onset-state-dot" />
           <strong>{armed ? "ONSET RECORDING" : "REPETITION WATCH"}</strong>
           <InfoTip text="Recording arms after the transcript ends with three consecutive copies of the same normalized character sequence." />
         </div>
-        <button onClick={onReset}>Re-arm</button>
-      </div>
+        <button onClick={(event) => {
+          event.preventDefault();
+          onReset();
+        }}>Re-arm</button>
+      </summary>
       <p className="onset-status">
         {armed
           ? <>Triggered by 3× “<b>{repetition}</b>” · {formatSeconds(elapsed)} recorded</>
@@ -217,6 +220,6 @@ export const OnsetAnalysis: FC<OnsetAnalysisProps> = ({
       <p className="onset-footnote">
         IOI = inter-onset interval. Cross-stream values update at every new onset.
       </p>
-    </section>
+    </details>
   );
 };

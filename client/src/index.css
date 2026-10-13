@@ -158,6 +158,34 @@ button {
   background: #ef4444;
 }
 
+.midi-monitor {
+  min-width: 140px;
+  max-width: 250px;
+  display: grid;
+  gap: 5px;
+}
+
+.midi-access-button {
+  justify-self: start;
+  cursor: pointer;
+}
+
+.midi-access-button:disabled {
+  cursor: wait;
+}
+
+.midi-monitor small {
+  overflow: hidden;
+  color: #818b91;
+  font: 400 8px/1.4 "IBM Plex Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.midi-monitor small.midi-error {
+  color: #f0a176;
+}
+
 .session-clock {
   min-width: 88px;
   border-left: 1px solid var(--border);
@@ -293,6 +321,35 @@ button {
 .activity-label.active i {
   background: var(--orange);
   box-shadow: 0 0 8px rgba(249, 115, 22, 0.8);
+}
+
+.input-heading-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.monitor-mute-button {
+  padding: 4px 6px;
+  border: 1px solid #41494e;
+  background: #0c0f10;
+  color: #aab2b7;
+  font: 500 8px/1 "IBM Plex Mono", monospace;
+  cursor: pointer;
+}
+
+.monitor-mute-button:hover {
+  border-color: var(--orange);
+}
+
+.monitor-mute-button.muted {
+  border-color: rgba(249, 115, 22, 0.6);
+  color: var(--orange);
+  background: rgba(249, 115, 22, 0.06);
+}
+
+.monitor-mute-button:disabled {
+  cursor: default;
 }
 
 .source-tabs {
@@ -963,6 +1020,188 @@ button {
 
 .onset-analysis.recording {
   border-color: rgba(34, 211, 166, 0.28);
+}
+
+.perturbation-panel {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #384339;
+  background: #0b100e;
+}
+
+.experiment-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  color: #a7b7ae;
+  font: 500 9px/1.3 "IBM Plex Mono", monospace;
+  text-transform: uppercase;
+}
+
+.experiment-summary::-webkit-details-marker {
+  display: none;
+}
+
+.experiment-summary::before {
+  content: "▸";
+  color: #6c8174;
+}
+
+details[open] > .experiment-summary::before {
+  content: "▾";
+}
+
+.experiment-summary > :first-child {
+  margin-right: auto;
+}
+
+.experiment-summary > span:last-child {
+  color: #617168;
+  font-size: 8px;
+}
+
+.perturbation-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.perturbation-toolbar button {
+  padding: 5px 7px;
+  border: 1px solid #36443b;
+  background: #101713;
+  color: #a4b1aa;
+  cursor: pointer;
+  font: 500 8px/1 "IBM Plex Mono", monospace;
+}
+
+.perturbation-toolbar button.active {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.perturbation-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.perturbation-toolbar > span {
+  margin-left: auto;
+  color: #617168;
+  font: 400 7px/1 "IBM Plex Mono", monospace;
+}
+
+.perturbation-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 14px;
+}
+
+.trajectory-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #a4b1aa;
+  font: 400 9px/1.3 "IBM Plex Mono", monospace;
+}
+
+.trajectory-preset-row select {
+  flex: 1;
+  min-width: 0;
+  margin-left: 6px;
+  padding: 4px 6px;
+  border: 1px solid #36443b;
+  background: #101713;
+  color: #c1cec6;
+  font: inherit;
+}
+
+.trajectory-description {
+  margin: 6px 0 0;
+  color: #72877a;
+  font: 400 8px/1.4 "IBM Plex Mono", monospace;
+}
+
+.perturbation-controls .range-control {
+  min-width: 0;
+  margin-top: 10px;
+  grid-template-rows: auto auto;
+  gap: 4px;
+}
+
+.perturbation-controls .range-label,
+.perturbation-controls .range-value {
+  min-width: 0;
+  font-size: 9px;
+}
+
+.perturbation-controls .range-value em {
+  font-size: 7px;
+}
+
+.perturbation-controls .range-min,
+.perturbation-controls .range-max {
+  display: none;
+}
+
+.orbit-telemetry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  color: #617168;
+  font: 400 7px/1 "IBM Plex Mono", monospace;
+}
+
+.orbit-telemetry > i {
+  flex: 1;
+  height: 4px;
+  position: relative;
+  overflow: hidden;
+  background: #25352b;
+}
+
+.phase-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--green);
+  opacity: 0.22;
+  transform: scaleX(0);
+  transform-origin: left;
+  will-change: transform;
+}
+
+.phase-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.phase-marker::before {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: var(--green);
+}
+
+.phase-readout {
+  flex: 0 0 10ch;
+  white-space: nowrap;
 }
 
 .onset-analysis-heading,
