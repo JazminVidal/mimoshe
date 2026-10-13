@@ -94,7 +94,7 @@ WebSocket, CUDA, or out-of-memory errors.
 
 ### Hidden-state trajectory experiments
 
-The **Desviá.** module (code `TRAJ`) in the bottom control deck adds a seeded cyclic
+The **Deflect.** module (code `TRAJ`) in the bottom control deck adds a seeded cyclic
 trajectory to the residual hidden state **after a selected temporal-transformer
 block**, before text prediction and audio-depth generation. It is an inference
 experiment, not a model-training change or an audio effect applied afterwards.
@@ -147,7 +147,7 @@ experiment, not a model-training change or an audio effect applied afterwards.
 
 All controls apply on upcoming model steps without clearing KV caches or
 recapturing CUDA graphs. Turning injection off does not undo effects already
-stored in the conversation; use **FLUSH** (in **Olvidá.**) for a fresh baseline
+stored in the conversation; use **FLUSH** (in **Forget.**) for a fresh baseline
 (trajectory settings are preserved, but its phase is reset). Every control's full
 explanation is in its tooltip; knobs take Shift + drag for fine adjustment.
 

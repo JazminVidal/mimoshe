@@ -144,7 +144,7 @@ export const EnvelopeXYScope: FC<EnvelopeXYScopeProps> = ({
         </g>
         <circle cx="110" cy="110" r="106" className="xy-globe-rim" />
       </svg>
-      <canvas ref={canvasRef} aria-label="Envolvente de entrada contra envolvente de Moshi" />
+      <canvas ref={canvasRef} aria-label="Input envelope against Moshi envelope" />
       <span className="xy-tag xy-tag-out">OUT</span>
       <span className="xy-tag xy-tag-in">IN</span>
     </div>

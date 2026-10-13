@@ -37,11 +37,11 @@ export const PhaseIndicator = memo(function PhaseIndicator({ clock }: { clock: P
       ref={ringRef}
       className="phase-ring"
       role="progressbar"
-      aria-label="Fase del ciclo de la trayectoria"
+      aria-label="Trajectory cycle phase"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={0}
-      title="Fase del ciclo: avanza con cada paso del modelo, con hasta un paso de demora; se congela si se detiene el stream"
+      title="Cycle phase: advances with each model step, up to one step behind; freezes when the stream stops"
     >
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <circle className="phase-ring-track" cx="12" cy="12" r="8" />

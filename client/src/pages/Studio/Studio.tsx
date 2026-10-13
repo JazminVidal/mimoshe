@@ -1176,11 +1176,11 @@ export const Studio: FC = () => {
   const activePad = SOUND_PADS.find((pad) => pad.id === selectedPadId);
   const frameRate = perturbationStatus?.frame_rate ?? 12.5;
   const midiLabel = midiState === "ready"
-    ? `MIDI: ${midiDevices.length} entrada${midiDevices.length === 1 ? "" : "s"}`
-    : midiState === "requesting" ? "MIDI: esperando permiso" : midiState === "error" ? "MIDI: reintentar" : "Activar MIDI";
+    ? `MIDI: ${midiDevices.length} input${midiDevices.length === 1 ? "" : "s"}`
+    : midiState === "requesting" ? "MIDI: waiting for permission" : midiState === "error" ? "MIDI: retry" : "Enable MIDI";
   const sourceLabel = useMemo(() => {
     if (inputMode !== "sample") return sourceActive ? "en vivo" : "inactivo";
-    const name = activePad?.label ?? (sampleName ? "sample" : "sin sample");
+    const name = activePad?.label ?? (sampleName ? "sample" : "no sample");
     return looping ? `${triggerRate.toFixed(2)} Hz · ${name}` : name;
   }, [activePad, inputMode, looping, sampleName, sourceActive, triggerRate]);
 
@@ -1254,7 +1254,7 @@ export const Studio: FC = () => {
       outputs: visible(outputOnsets),
       lastIn: inputOnsets.length ? `${inputOnsets[inputOnsets.length - 1].toFixed(2)}s` : "—",
       latency: latency === null ? "—" : `${latency.toFixed(2)}s`,
-      meanDelta: meanDelta === null ? "sin datos" : `${meanDelta.toFixed(2)} s`,
+      meanDelta: meanDelta === null ? "no data" : `${meanDelta.toFixed(2)} s`,
     };
   }, [crossOnsetDeltas, inputOnsets, onsetElapsed, outputOnsets]);
 
@@ -1303,9 +1303,9 @@ export const Studio: FC = () => {
           <div className="telemetry">
             <span className={`live-pill ${statusTone}`}><i />{connectionLabel}</span>
             <span className="status-text" title={statusMessage}>{statusMessage}</span>
-            <span title="Tiempo de sesión">{formatTime(elapsed)}</span>
-            <span title="Pasos del modelo por segundo">{frameRate} Hz</span>
-            <span title="Códec">MIMI 24K</span>
+            <span title="Session time">{formatTime(elapsed)}</span>
+            <span title="Model steps per second">{frameRate} Hz</span>
+            <span title="Codec">MIMI 24K</span>
           </div>
           <div className="header-actions">
             <div className="midi-monitor">
@@ -1317,22 +1317,22 @@ export const Studio: FC = () => {
                 aria-label={midiLabel}
                 title={midiState === "ready" && midiDevices.length
                   ? `${midiDevices.join(", ")}`
-                  : midiError || "Conectá un controlador MIDI a esta computadora y permití el acceso"}
+                  : midiError || "Connect a MIDI controller to this computer and allow access"}
               >
                 <MidiGlyph />
                 <span>{midiState === "ready" ? `MIDI ${midiDevices.length}` : midiState === "requesting" ? "MIDI …" : midiState === "error" ? "MIDI !" : "MIDI"}</span>
               </button>
               <small className={midiError ? "midi-error" : undefined} title={midiError || lastMidiMessage}>
-                {midiError || (midiState === "ready" ? lastMidiMessage || (midiDevices.length ? "mové un control" : "sin entradas") : "")}
+                {midiError || (midiState === "ready" ? lastMidiMessage || (midiDevices.length ? "move a control" : "no inputs") : "")}
               </small>
             </div>
             {!secureCapture && (
-              <span className="http-badge" title="Conexión HTTP: el micrófono y el audio del sistema necesitan HTTPS o un túnel a localhost">
+              <span className="http-badge" title="HTTP connection: microphone and system audio need HTTPS or a tunnel to localhost">
                 <Icon d={ICONS.lock} size={14} />HTTP
               </span>
             )}
             {connection === "offline" && (
-              <button type="button" className="key key-small" onClick={connect} aria-label="Reconectar" title="Reconectar">
+              <button type="button" className="key key-small" onClick={connect} aria-label="Reconnect" title="Reconnect">
                 <Icon d={ICONS.reset} size={18} />
               </button>
             )}
@@ -1341,8 +1341,8 @@ export const Studio: FC = () => {
               className="key key-small"
               aria-pressed={audioEnabled}
               onClick={enableAudio}
-              aria-label={audioEnabled ? "Sonido activo" : "Activar sonido"}
-              title={audioEnabled ? "Sonido activo" : "Activar sonido"}
+              aria-label={audioEnabled ? "Sound on" : "Enable sound"}
+              title={audioEnabled ? "Sound on" : "Enable sound"}
             >
               <Icon d={audioEnabled ? ICONS.speakerOn : ICONS.speakerOff} size={18} />
             </button>
@@ -1351,7 +1351,7 @@ export const Studio: FC = () => {
 
         <section className="cell source" aria-label="Fuente">
           <div className="caption">
-            <strong>Escuchá.</strong>
+            <strong>Listen.</strong>
             <span className="caption-tools">
               <small>{sourceLabel}</small>
               <button
@@ -1360,12 +1360,12 @@ export const Studio: FC = () => {
                 aria-pressed={monitorMuted}
                 disabled={inputMode === "microphone"}
                 onClick={() => setInputMonitorMuted((muted) => !muted)}
-                aria-label={monitorMuted ? "Monitor de entrada silenciado" : "Silenciar el monitor de entrada"}
+                aria-label={monitorMuted ? "Input monitor muted" : "Mute input monitor"}
                 title={inputMode === "microphone"
-                  ? "Con micrófono el monitor siempre está silenciado para evitar acople. Moshi suena por los dos parlantes"
+                  ? "With the microphone the monitor is always muted to avoid feedback. Moshi plays through both speakers"
                   : monitorMuted
-                    ? "Monitor de entrada silenciado: Moshi sigue escuchando y suena por los dos parlantes"
-                    : "Silenciar la entrada en los parlantes sin dejar de alimentar a Moshi"}
+                    ? "Input monitor muted: Moshi keeps listening and plays through both speakers"
+                    : "Mute the input in the speakers while still feeding Moshi"}
               >
                 <Icon d={monitorMuted ? ICONS.speakerOff : ICONS.speakerOn} size={12} />
               </button>
@@ -1375,8 +1375,8 @@ export const Studio: FC = () => {
                   className={`midi-dot ${voicePadMidiLearning ? "learning" : ""} ${voicePadMidiMappedCount ? "mapped" : ""}`}
                   aria-pressed={voicePadMidiLearning}
                   onClick={beginVoicePadMidiLearn}
-                  aria-label={`MIDI learn de los pads (${voicePadMidiMappedCount}/${SOUND_PADS.length})`}
-                  title={`MIDI learn de los pads: ${voicePadMidiMappedCount}/${SOUND_PADS.length} asignados`}
+                  aria-label={`MIDI learn voice pads (${voicePadMidiMappedCount}/${SOUND_PADS.length})`}
+                  title={`MIDI learn voice pads: ${voicePadMidiMappedCount}/${SOUND_PADS.length} mapped`}
                 >
                   <MidiGlyph />
                 </button>
@@ -1384,7 +1384,7 @@ export const Studio: FC = () => {
             </span>
           </div>
           <div className="source-body">
-            <div className="source-tabs" role="tablist" aria-label="Fuente de entrada">
+            <div className="source-tabs" role="tablist" aria-label="Input source">
               {SOURCES.map((source) => (
                 <button
                   key={source.mode}
@@ -1414,7 +1414,7 @@ export const Studio: FC = () => {
                       className="pad"
                       aria-pressed={selectedPadId === pad.id}
                       aria-keyshortcuts={index === 9 ? "0" : String(index + 1)}
-                      title={`Tecla ${index === 9 ? 0 : index + 1}`}
+                      title={`Key ${index === 9 ? 0 : index + 1}`}
                       onPointerDown={(event) => {
                         if (event.button !== 0) return;
                         event.preventDefault();
@@ -1437,8 +1437,8 @@ export const Studio: FC = () => {
                     className="key"
                     onClick={() => void triggerSample()}
                     disabled={!sampleName}
-                    aria-label="Disparar una vez"
-                    title="Disparar una vez"
+                    aria-label="Trigger once"
+                    title="Trigger once"
                   >
                     <Icon d={ICONS.play} size={28} />
                   </button>
@@ -1448,19 +1448,19 @@ export const Studio: FC = () => {
                     aria-pressed={looping}
                     onClick={toggleLoop}
                     disabled={!sampleName}
-                    aria-label={looping ? "Detener secuencia" : "Correr secuencia"}
-                    title={looping ? "Detener secuencia" : "Correr secuencia"}
+                    aria-label={looping ? "Stop sequence" : "Run sequence"}
+                    title={looping ? "Stop sequence" : "Run sequence"}
                   >
                     <Icon d={ICONS.loop} size={28} />
                   </button>
                   <label
                     className="key"
                     title={sampleName
-                      ? `${sampleName} · ${sampleDuration.toFixed(2)} s · elegir otro`
-                      : "Cargar sample: WAV, MP3, OGG, FLAC o M4A"}
+                      ? `${sampleName} · ${sampleDuration.toFixed(2)} s · choose another`
+                      : "Load a sample: WAV, MP3, OGG, FLAC or M4A"}
                   >
                     <Icon d={ICONS.upload} size={28} />
-                    <input type="file" accept="audio/*" onChange={loadSample} className="visually-hidden" aria-label="Cargar sample de audio" />
+                    <input type="file" accept="audio/*" onChange={loadSample} className="visually-hidden" aria-label="Load audio sample" />
                   </label>
                 </div>
               </div>
@@ -1472,31 +1472,31 @@ export const Studio: FC = () => {
                   aria-pressed={sourceActive}
                   disabled={!secureCapture}
                   onClick={() => (sourceActive ? stopInput() : startCapture(inputMode))}
-                  title={sourceActive ? "Detener entrada" : inputMode === "microphone" ? "Abrir micrófono" : "Capturar audio del sistema"}
+                  title={sourceActive ? "Stop input" : inputMode === "microphone" ? "Open microphone" : "Capture system audio"}
                 >
                   <Icon d={sourceActive ? ICONS.stop : ICONS.record} size={40} />
                   <small>{sourceActive ? "STOP" : inputMode === "microphone" ? "MIC" : "SYS"}</small>
                 </button>
                 <p className="capture-note">
                   {!secureCapture
-                    ? "Requiere HTTPS o localhost."
+                    ? "Requires HTTPS or localhost."
                     : inputMode === "microphone"
-                      ? "Micrófono o entrada virtual de loopback."
-                      : "Pestaña del navegador o salida del sistema."}
+                      ? "Microphone or virtual loopback input."
+                      : "Browser tab or system output."}
                 </p>
               </div>
             )}
           </div>
         </section>
 
-        <section className="cell monologue-cell" aria-label="Monólogo interior de Moshi">
+        <section className="cell monologue-cell" aria-label="Moshi inner monologue">
           <div className="scopes">
-            <div className="scope" title={`Entrada · nivel ${inputLevel}%`}>
-              <AudioScope analyser={inputAnalyser} variant="input" label="Entrada, canal izquierdo" />
+            <div className="scope" title={`Input · level ${inputLevel}%`}>
+              <AudioScope analyser={inputAnalyser} variant="input" label="Input, left channel" />
               <span className="scope-tag">{monitorMuted ? "IN·MUTE" : "IN·L"}</span>
             </div>
-            <div className="scope" title={`Moshi · nivel ${outputLevel}%`}>
-              <AudioScope analyser={outputAnalyser} variant="output" label="Moshi, canal derecho" />
+            <div className="scope" title={`Moshi · level ${outputLevel}%`}>
+              <AudioScope analyser={outputAnalyser} variant="output" label="Moshi, right channel" />
               <span className="scope-tag">{monitorMuted ? "OUT·L+R" : "OUT·R"}</span>
             </div>
           </div>
@@ -1509,8 +1509,8 @@ export const Studio: FC = () => {
                 className="key key-small"
                 onClick={() => drainThen(() => setTranscript(""))}
                 disabled={!transcript}
-                aria-label="Borrar monólogo"
-                title="Borrar monólogo"
+                aria-label="Clear monologue"
+                title="Clear monologue"
               >
                 <Icon d={ICONS.backspace} size={18} />
               </button>
@@ -1541,22 +1541,22 @@ export const Studio: FC = () => {
           <div
             className="onset-strip"
             title={onsetRecording
-              ? `Ataques desde la repetición «${repeatedSequence}». Desfase medio entrada − Moshi: ${raster.meanDelta}`
-              : "Se empieza a registrar cuando Moshi repite tres veces la misma secuencia"}
+              ? `Onsets since the repetition “${repeatedSequence}”. Mean offset input − Moshi: ${raster.meanDelta}`
+              : "Recording starts when Moshi repeats the same sequence three times"}
           >
             <div className="onset-rows">
-              <div className="onset-row" aria-label="Ataques de la entrada">
+              <div className="onset-row" aria-label="Input onsets">
                 {raster.inputs.map((x, index) => (
                   <i key={`in-${index}`} className="tick tick-in" style={{ left: `${x}%` }} />
                 ))}
               </div>
               <div className="onset-rule" />
-              <div className="onset-row" aria-label="Ataques de Moshi">
+              <div className="onset-row" aria-label="Moshi onsets">
                 {raster.outputs.map((x, index) => (
                   <i key={`out-${index}`} className="tick tick-out" style={{ left: `${x}%` }} />
                 ))}
               </div>
-              {!onsetRecording && <span className="onset-wait">esperando ×3</span>}
+              {!onsetRecording && <span className="onset-wait">waiting for ×3</span>}
               <div className="onset-scale" aria-hidden="true">
                 <span>{raster.windowStart.toFixed(0)}s</span>
                 <span>{(raster.windowStart + RASTER_WINDOW_SECONDS / 2).toFixed(1)}s</span>
@@ -1564,15 +1564,15 @@ export const Studio: FC = () => {
               </div>
             </div>
             <div className="onset-times">
-              <span title="Último ataque de la entrada">{raster.lastIn}</span>
-              <span title="Onset de la última respuesta de Moshi: segundos desde el estímulo">{raster.latency}</span>
+              <span title="Last input onset">{raster.lastIn}</span>
+              <span title="Onset of Moshi's last reply: seconds after the stimulus">{raster.latency}</span>
             </div>
           </div>
         </section>
 
-        <section className="cell compare" aria-label="Análisis">
+        <section className="cell compare" aria-label="Analysis">
           <div className="caption">
-            <strong>Compará.</strong>
+            <strong>Compare.</strong>
             <small>IN × OUT</small>
           </div>
           <div className="compare-body">
@@ -1584,14 +1584,14 @@ export const Studio: FC = () => {
             <div className="steppers">
               <Stepper
                 code="RANGE"
-                title="Rango del histograma (solo cambia la vista)"
+                title="Histogram range (view only)"
                 text={`${histogramRange.toFixed(1)}s`}
                 onDecrease={() => setHistogramRange((value) => Math.max(0.5, value - 0.5))}
                 onIncrease={() => setHistogramRange((value) => Math.min(10, value + 0.5))}
               />
               <Stepper
                 code="BINS"
-                title="Barras del histograma (solo cambia la vista)"
+                title="Histogram bins (view only)"
                 text={String(Math.round(histogramBins))}
                 onDecrease={() => setHistogramBins((value) => Math.max(4, value - 1))}
                 onIncrease={() => setHistogramBins((value) => Math.min(40, value + 1))}
@@ -1601,11 +1601,11 @@ export const Studio: FC = () => {
               <div className="histogram-head">
                 <span>Δt</span>
                 <span className="histogram-tools">
-                  <small title="Ataques registrados: entrada · Moshi">in {histogram.inCount} · out {histogram.outCount}</small>
-                  <button type="button" className="mini-key" onClick={resetOnsetAnalysis} aria-label="Volver a esperar una repetición" title="Volver a esperar una repetición">
+                  <small title="Onsets recorded: input · Moshi">in {histogram.inCount} · out {histogram.outCount}</small>
+                  <button type="button" className="mini-key" onClick={resetOnsetAnalysis} aria-label="Re-arm: wait for a new repetition" title="Re-arm: wait for a new repetition">
                     <Icon d={ICONS.reset} size={12} />
                   </button>
-                  <button type="button" className="mini-key" onClick={clearOnsetRecords} aria-label="Borrar registros de ataques" title="Borrar registros de ataques">
+                  <button type="button" className="mini-key" onClick={clearOnsetRecords} aria-label="Clear onset records" title="Clear onset records">
                     <Icon d={ICONS.cross} size={12} />
                   </button>
                 </span>
@@ -1613,7 +1613,7 @@ export const Studio: FC = () => {
               <div
                 className="histogram-bars"
                 style={{ gridTemplateColumns: `repeat(${histogram.intervals.length}, minmax(0, 1fr))` }}
-                title="Intervalos entre ataques consecutivos: trama = entrada, negro = Moshi"
+                title="Intervals between consecutive onsets: halftone = input, solid = Moshi"
               >
                 {histogram.intervals.map((bin, index) => (
                   <div className="histogram-bin" key={index}>
@@ -1627,12 +1627,12 @@ export const Studio: FC = () => {
             <div className="histogram">
               <div className="histogram-head">
                 <span>IN − OUT</span>
-                <small title="Diferencias medidas">n {histogram.deltaCount}</small>
+                <small title="Differences measured">n {histogram.deltaCount}</small>
               </div>
               <div
                 className="histogram-bars histogram-bars-signed"
                 style={{ gridTemplateColumns: `repeat(${histogram.deltas.length}, minmax(0, 1fr))` }}
-                title="Último ataque de la entrada menos último ataque de Moshi. A la izquierda del cero, la entrada vino primero"
+                title="Last input onset minus last Moshi onset. Left of zero, the input came first"
               >
                 {histogram.deltas.map((height, index) => (
                   <div className="histogram-bin" key={index}>
@@ -1651,30 +1651,30 @@ export const Studio: FC = () => {
         </section>
 
         <div className="deck">
-          <Module verb="Repetí." code="SEQ" icon={ICONS.seq}>
-            <Knob code="RATE" title="Disparos por segundo" value={triggerRate} min={0.1} max={8} step={0.1} decimals={2} onChange={setTriggerRate} {...midiControlProps("trigger-rate")} />
-            <Knob code="PITCH" title="Velocidad y altura del sample" value={playbackRate} min={0.25} max={2} step={0.05} decimals={2} unit="×" onChange={setPlaybackRate} {...midiControlProps("playback-rate")} />
+          <Module verb="Repeat." code="SEQ" icon={ICONS.seq}>
+            <Knob code="RATE" title="Triggers per second" value={triggerRate} min={0.1} max={8} step={0.1} decimals={2} onChange={setTriggerRate} {...midiControlProps("trigger-rate")} />
+            <Knob code="PITCH" title="Sample speed and pitch" value={playbackRate} min={0.25} max={2} step={0.05} decimals={2} unit="×" onChange={setPlaybackRate} {...midiControlProps("playback-rate")} />
           </Module>
-          <Module verb="Pensá." code="TXT" icon={ICONS.text}>
-            <Knob code="TEMP" title="Temperatura del texto: más alta, más impredecible" value={params.textTemperature} min={0} max={1.2} step={0.01} decimals={2} onChange={(value) => updateParam("textTemperature", value)} {...midiControlProps("text-temperature")} />
-            <Knob code="TOP-K" title="Candidatos de texto por paso" value={params.textTopk} min={1} max={500} step={1} decimals={0} onChange={(value) => updateParam("textTopk", value)} {...midiControlProps("text-top-k")} />
-            <Knob code="PAD" title={`Token ${padTokenId}. Positivo, más silencio. Negativo, Moshi habla sin que le hablen`} value={params.padBias} min={-10} max={10} step={0.05} decimals={1} bipolar onChange={(value) => updateParam("padBias", value)} {...midiControlProps("pad-logit-bias")} />
+          <Module verb="Think." code="TXT" icon={ICONS.text}>
+            <Knob code="TEMP" title="Text temperature: higher is less predictable" value={params.textTemperature} min={0} max={1.2} step={0.01} decimals={2} onChange={(value) => updateParam("textTemperature", value)} {...midiControlProps("text-temperature")} />
+            <Knob code="TOP-K" title="Text candidates per step" value={params.textTopk} min={1} max={500} step={1} decimals={0} onChange={(value) => updateParam("textTopk", value)} {...midiControlProps("text-top-k")} />
+            <Knob code="PAD" title={`Token ${padTokenId}. Positive is quieter. Negative, Moshi speaks without being spoken to`} value={params.padBias} min={-10} max={10} step={0.05} decimals={1} bipolar onChange={(value) => updateParam("padBias", value)} {...midiControlProps("pad-logit-bias")} />
           </Module>
-          <Module verb="Soná." code="AUD" icon={ICONS.wave}>
-            <Knob code="TEMP" title="Temperatura del audio" value={params.audioTemperature} min={0} max={1.2} step={0.01} decimals={2} onChange={(value) => updateParam("audioTemperature", value)} {...midiControlProps("audio-temperature")} />
-            <Knob code="TOP-K" title="Candidatos de audio por paso" value={params.audioTopk} min={1} max={500} step={1} decimals={0} onChange={(value) => updateParam("audioTopk", value)} {...midiControlProps("audio-top-k")} />
+          <Module verb="Sound." code="AUD" icon={ICONS.wave}>
+            <Knob code="TEMP" title="Audio temperature" value={params.audioTemperature} min={0} max={1.2} step={0.01} decimals={2} onChange={(value) => updateParam("audioTemperature", value)} {...midiControlProps("audio-temperature")} />
+            <Knob code="TOP-K" title="Audio candidates per step" value={params.audioTopk} min={1} max={500} step={1} decimals={0} onChange={(value) => updateParam("audioTopk", value)} {...midiControlProps("audio-top-k")} />
           </Module>
-          <Module verb="Mezclá." code="MIX" icon={ICONS.mix}>
-            <Knob code="IN" title="Nivel de entrada" value={inputGain} min={0} max={1.5} step={0.05} decimals={2} onChange={setInputGain} {...midiControlProps("input-level")} />
-            <Knob code="OUT" title="Nivel de salida (solo la reproducción local)" value={outputGain} min={0} max={1.5} step={0.05} decimals={2} onChange={setOutputGain} {...midiControlProps("output-level")} />
-            <div className="knob" title="Ganancia automática: sube la voz baja y limita los picos">
+          <Module verb="Mix." code="MIX" icon={ICONS.mix}>
+            <Knob code="IN" title="Input level" value={inputGain} min={0} max={1.5} step={0.05} decimals={2} onChange={setInputGain} {...midiControlProps("input-level")} />
+            <Knob code="OUT" title="Output level (local playback only)" value={outputGain} min={0} max={1.5} step={0.05} decimals={2} onChange={setOutputGain} {...midiControlProps("output-level")} />
+            <div className="knob" title="Automatic gain: lifts quiet speech and limits peaks">
               <span className="knob-code">AGC</span>
               <button
                 type="button"
                 className="switch"
                 role="switch"
                 aria-checked={autoGainEnabled}
-                aria-label="Ganancia automática"
+                aria-label="Automatic gain"
                 onClick={() => setAutoGainEnabled((enabled) => !enabled)}
               >
                 <i />
@@ -1684,10 +1684,10 @@ export const Studio: FC = () => {
             </div>
           </Module>
           <Module
-            verb="Desviá."
+            verb="Deflect."
             code="TRAJ"
             icon={ICONS.orbit}
-            title={`Trayectorias en el estado oculto: se suman después de una capa del transformer temporal. ${perturbationStatus ? `${perturbationStatus.dimension}D · ${perturbationStatus.layer_count} capas · seed ${perturbation.seed}` : "esperando al motor"}`}
+            title={`Hidden-state trajectories, added after one temporal-transformer layer. ${perturbationStatus ? `${perturbationStatus.dimension}D · ${perturbationStatus.layer_count} layers · seed ${perturbation.seed}` : "waiting for engine"}`}
             tools={(
               <>
                 <PhaseIndicator clock={phaseClock} />
@@ -1695,8 +1695,8 @@ export const Studio: FC = () => {
                   type="button"
                   className="mini-key"
                   onClick={() => updatePerturbation("seed", Math.floor(Math.random() * 2147483647))}
-                  aria-label="Nuevo camino"
-                  title={`Nuevo camino: otra semilla, mismas fase y conversación (seed ${perturbation.seed})`}
+                  aria-label="New path"
+                  title={`New path: another seed, same phase and conversation (seed ${perturbation.seed})`}
                 >
                   <Icon d={ICONS.dice} size={12} />
                 </button>
@@ -1709,22 +1709,22 @@ export const Studio: FC = () => {
                     phaseClock.reset(0, performance.now());
                     send({ type: "metadata", data: { perturbation_reset_phase: true } });
                   }}
-                  aria-label="Reiniciar la fase"
-                  title="Reiniciar la fase de la trayectoria sin borrar el contexto"
+                  aria-label="Reset phase"
+                  title="Restart the trajectory phase without clearing the context"
                 >
                   <Icon d={ICONS.reset} size={12} />
                 </button>
               </>
             )}
           >
-            <div className="knob" title="Activa o apaga la inyección al instante. Al recargar la página arranca apagada">
+            <div className="knob" title="Turns injection on or off immediately. Starts off after a page reload">
               <span className="knob-code">ON</span>
               <button
                 type="button"
                 className="switch"
                 role="switch"
                 aria-checked={perturbation.enabled}
-                aria-label="Perturbación"
+                aria-label="Perturbation"
                 disabled={connection !== "live" || !perturbationStatus}
                 onClick={() => updatePerturbation("enabled", !perturbation.enabled)}
               >
@@ -1735,7 +1735,7 @@ export const Studio: FC = () => {
             </div>
             <div className="knob preset-picker">
               <span className="knob-code">TRAJ</span>
-              <div className="preset-keys" role="radiogroup" aria-label="Trayectoria">
+              <div className="preset-keys" role="radiogroup" aria-label="Trajectory">
                 {TRAJECTORY_PRESETS.map((preset) => (
                   <button
                     key={preset}
@@ -1754,28 +1754,28 @@ export const Studio: FC = () => {
                 type="button"
                 className={`midi-dot ${midiLearning === "orbit-preset" ? "learning" : ""} ${midiMappings["orbit-preset"] ? "mapped" : ""}`}
                 aria-pressed={midiLearning === "orbit-preset"}
-                aria-label="MIDI learn de la trayectoria"
-                title="MIDI learn: CC 0–42 órbita, 43–84 pulso, 85–127 caminata"
+                aria-label="MIDI learn trajectory"
+                title="MIDI learn: CC 0–42 orbit, 43–84 pulse, 85–127 walk"
                 onClick={() => void beginMidiLearn("orbit-preset")}
               >
                 <MidiGlyph />
               </button>
             </div>
-            <Knob code="STR" title="Fuerza relativa al RMS del estado oculto, de 0 a 10. Empezá entre 0.05 y 0.2; valores altos pueden desestabilizar. Shift + arrastre para ajuste fino" value={perturbation.strength} min={0} max={10} step={0.01} decimals={2} unit="×" onChange={(value) => updatePerturbation("strength", value)} {...midiControlProps("orbit-strength")} />
-            <Knob code="RATE" title={`Ciclos por segundo de audio del modelo (${(1 / perturbation.frequency).toFixed(2)} s por ciclo). Cambiarlo conserva la fase`} value={perturbation.frequency} min={0.01} max={perturbationStatus?.max_frequency ?? 6} step={0.01} decimals={2} unit="Hz" onChange={(value) => updatePerturbation("frequency", value)} {...midiControlProps("orbit-frequency")} />
-            <Knob code="LAYER" title="Bloque del transformer temporal (desde 1) después del cual se suma la trayectoria" value={perturbation.layer} min={1} max={perturbationStatus?.layer_count ?? 32} step={1} decimals={0} onChange={(value) => updatePerturbation("layer", value)} {...midiControlProps("orbit-layer")} />
+            <Knob code="STR" title="Strength relative to hidden-state RMS, 0 to 10. Start between 0.05 and 0.2; high values can destabilize generation. Shift + drag for fine adjustment" value={perturbation.strength} min={0} max={10} step={0.01} decimals={2} unit="×" onChange={(value) => updatePerturbation("strength", value)} {...midiControlProps("orbit-strength")} />
+            <Knob code="RATE" title={`Cycles per second of model audio (${(1 / perturbation.frequency).toFixed(2)} s per cycle). Changing it keeps the phase`} value={perturbation.frequency} min={0.01} max={perturbationStatus?.max_frequency ?? 6} step={0.01} decimals={2} unit="Hz" onChange={(value) => updatePerturbation("frequency", value)} {...midiControlProps("orbit-frequency")} />
+            <Knob code="LAYER" title="Temporal-transformer block (one-based) after which the trajectory is added" value={perturbation.layer} min={1} max={perturbationStatus?.layer_count ?? 32} step={1} decimals={0} onChange={(value) => updatePerturbation("layer", value)} {...midiControlProps("orbit-layer")} />
             {perturbation.preset === "orbit" && (
-              <Knob code="HARM" title="Armónicos de Fourier en direcciones ortonormales al azar. Uno es un círculo; más, movimiento cerrado más complejo" value={perturbation.harmonics} min={1} max={perturbationStatus?.max_harmonics ?? 6} step={1} decimals={0} onChange={(value) => updatePerturbation("harmonics", value)} {...midiControlProps("orbit-harmonics")} />
+              <Knob code="HARM" title="Fourier harmonics in random orthonormal directions. One is a circle; more give complex closed motion" value={perturbation.harmonics} min={1} max={perturbationStatus?.max_harmonics ?? 6} step={1} decimals={0} onChange={(value) => updatePerturbation("harmonics", value)} {...midiControlProps("orbit-harmonics")} />
             )}
             {perturbation.preset === "walk" && (
-              <Knob code="STEP" title="RMS de cada paso de la caminata antes de la fuerza. Cero mantiene el primer vector" value={perturbation.walk_step} min={0} max={1} step={0.01} decimals={2} onChange={(value) => updatePerturbation("walk_step", value)} {...midiControlProps("orbit-walk-step")} />
+              <Knob code="STEP" title="RMS of each walk step before strength. Zero holds the first vector" value={perturbation.walk_step} min={0} max={1} step={0.01} decimals={2} onChange={(value) => updatePerturbation("walk_step", value)} {...midiControlProps("orbit-walk-step")} />
             )}
           </Module>
         </div>
 
-        <section className="cell forget" aria-label="Contexto del modelo">
+        <section className="cell forget" aria-label="Model context">
           <div className="caption">
-            <strong>Olvidá.</strong>
+            <strong>Forget.</strong>
             <small>CTX</small>
           </div>
           <div className="forget-body">
@@ -1784,13 +1784,13 @@ export const Studio: FC = () => {
               className="key flush"
               disabled={connection !== "live"}
               onClick={() => drainThen(resetContext)}
-              aria-label="Borrar el contexto del modelo; la conexión sigue"
-              title="Borrar el contexto del modelo: Moshi olvida, la conexión y el sampler siguen"
+              aria-label="Clear model context; the connection stays open"
+              title="Clear model context: Moshi forgets, the connection and sampler keep running"
             >
               <Icon d={ICONS.reset} size={30} />
               <small>FLUSH</small>
             </button>
-            <button type="button" className="key defaults" onClick={resetDefaults} title="Valores por defecto del muestreo">
+            <button type="button" className="key defaults" onClick={resetDefaults} title="Sampling defaults">
               <small>DEFAULTS</small>
             </button>
           </div>
@@ -1831,9 +1831,9 @@ const ICONS = {
 const PRESET_CODES: Record<TrajectoryPreset, string> = { orbit: "ORB", pulse: "PUL", walk: "WLK" };
 
 const SOURCES: { mode: InputMode; code: string; title: string; icon: string }[] = [
-  { mode: "sample", code: "LOOP", title: "Sample en loop", icon: ICONS.sample },
-  { mode: "microphone", code: "MIC", title: "Micrófono", icon: ICONS.mic },
-  { mode: "system", code: "SYS", title: "Audio del sistema o de una pestaña", icon: ICONS.system },
+  { mode: "sample", code: "LOOP", title: "Looped sample", icon: ICONS.sample },
+  { mode: "microphone", code: "MIC", title: "Microphone", icon: ICONS.mic },
+  { mode: "system", code: "SYS", title: "System or browser-tab audio", icon: ICONS.system },
 ];
 
 const Icon: FC<{ d: string; size: number }> = ({ d, size }) => (
@@ -1885,9 +1885,9 @@ const Stepper: FC<{
   <div className="stepper" title={title}>
     <span>{code}</span>
     <div className="stepper-box">
-      <button type="button" onClick={onDecrease} aria-label={`Bajar ${code}`}>−</button>
+      <button type="button" onClick={onDecrease} aria-label={`Decrease ${code}`}>−</button>
       <output>{text}</output>
-      <button type="button" onClick={onIncrease} aria-label={`Subir ${code}`}>+</button>
+      <button type="button" onClick={onIncrease} aria-label={`Increase ${code}`}>+</button>
     </div>
   </div>
 );
@@ -1965,10 +1965,10 @@ const Knob: FC<KnobProps> = ({
   const base = polar(angle, 5);
   const text = `${bipolar && value > 0 ? "+" : ""}${value.toFixed(decimals)}${unit}`;
   const midiTitle = midiLearning
-    ? "Aprendiendo: mové un control MIDI; clic para cancelar"
+    ? "Learning: move a MIDI control; click to cancel"
     : midiMapping
-      ? `${midiMapping.inputName} · CH ${midiMapping.channel + 1} CC ${midiMapping.controller}; clic para reasignar`
-      : "MIDI learn: clic y mové un control";
+      ? `${midiMapping.inputName} · CH ${midiMapping.channel + 1} CC ${midiMapping.controller}; click to relearn`
+      : "MIDI learn: click, then move a control";
 
   return (
     <div className="knob" title={title}>
